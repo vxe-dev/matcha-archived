@@ -1,0 +1,584 @@
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+
+local LocalPlayer = Players.LocalPlayer
+
+local noFall = {
+    enabled = false,
+    triggerSpeed = -45,
+    safeSpeed = -8,
+    delay = 0.03
+}
+
+local speedChanger = {
+    enabled = false,
+    speed = 24,
+    delay = 0.08
+}
+
+local spaceBoost = {
+    enabled = false,
+    boostPower = 55,
+    maxUpwardVelocity = 180,
+    holdInterval = 0.08,
+    held = false
+}
+
+local noFog = {
+    enabled = false,
+    delay = 0.25,
+    saved = false,
+    fogStart = nil,
+    fogEnd = nil,
+    atmosphereValues = {}
+}
+
+local locations = {
+    Subway = Vector3.new(64.72, 0.50, 714.79),
+    Darius = Vector3.new(134.44, 30.57, 846.82),
+    Hana = Vector3.new(299.76, 27.50, 564.97),
+    Sentenza = Vector3.new(422.82, -7.50, 448.98),
+    Workshop = Vector3.new(156.65, 64.50, 121.05),
+    LibraryTP = Vector3.new(298.92, 64.50, -158.47),
+    Docks = Vector3.new(-1240.93, -10.50, 870.84),
+    MarkTower = Vector3.new(-981.13, 697.53, 1447.19),
+    BasketBall = Vector3.new(1030.96, 27.59, 912.24),
+    TowerOfAss = Vector3.new(732.88, 770.22, -77.86)
+}
+
+local function getAliveFolder()
+    return Workspace:FindFirstChild("Alive")
+end
+
+local function getLocalCharacter()
+    if LocalPlayer and LocalPlayer.Character then
+        return LocalPlayer.Character
+    end
+
+    local alive = getAliveFolder()
+    if alive and LocalPlayer and LocalPlayer.Name then
+        local character = alive:FindFirstChild(LocalPlayer.Name)
+        if character then
+            return character
+        end
+    end
+
+    if LocalPlayer and LocalPlayer.Name then
+        return Workspace:FindFirstChild(LocalPlayer.Name)
+    end
+
+    return nil
+end
+
+local function getRootPart(character)
+    if not character then
+        return nil
+    end
+
+    for _, name in ipairs({"HumanoidRootPart", "Torso", "UpperTorso", "LowerTorso", "Head"}) do
+        local part = character:FindFirstChild(name)
+        if part then
+            return part
+        end
+    end
+
+    for _, object in ipairs(character:GetDescendants()) do
+        local ok, hasPosition = pcall(function()
+            return object.Position ~= nil
+        end)
+
+        if ok and hasPosition then
+            return object
+        end
+    end
+
+    return nil
+end
+
+local function getHumanoid(character)
+    if not character then
+        return nil
+    end
+
+    return character:FindFirstChildOfClass("Humanoid")
+end
+
+local function getWalkSpeedValue(character)
+    if not character then
+        return nil
+    end
+
+    for _, name in ipairs({"WalkSpeed", "Speed", "WS"}) do
+        local value = character:FindFirstChild(name)
+        if value then
+            return value
+        end
+    end
+
+    for _, object in ipairs(character:GetDescendants()) do
+        if object.Name == "WalkSpeed" or object.Name == "Speed" or object.Name == "WS" then
+            return object
+        end
+    end
+
+    return nil
+end
+
+local function getRootVelocity(root)
+    if not root then
+        return nil
+    end
+
+    local ok, value = pcall(function()
+        return root.AssemblyLinearVelocity
+    end)
+
+    if ok and value then
+        return value
+    end
+
+    ok, value = pcall(function()
+        return root.Velocity
+    end)
+
+    if ok and value then
+        return value
+    end
+
+    return nil
+end
+
+local function setRootVelocity(root, velocity)
+    if not root then
+        return false
+    end
+
+    pcall(function()
+        root.AssemblyLinearVelocity = velocity
+    end)
+
+    pcall(function()
+        root.Velocity = velocity
+    end)
+
+    return true
+end
+
+local function isSpaceInput(input)
+    local keyCode = input and input.KeyCode
+
+    if Enum and Enum.KeyCode and keyCode == Enum.KeyCode.Space then
+        return true
+    end
+
+    local keyName = tostring(keyCode)
+    return keyName == "Space" or keyName == "Enum.KeyCode.Space"
+end
+
+local function boostSpaceOnce()
+    local root = getRootPart(getLocalCharacter())
+    if not root then
+        return false
+    end
+
+    local velocity = getRootVelocity(root) or Vector3.new(0, 0, 0)
+    local upwardVelocity = velocity.Y + spaceBoost.boostPower
+
+    if upwardVelocity > spaceBoost.maxUpwardVelocity then
+        upwardVelocity = spaceBoost.maxUpwardVelocity
+    end
+
+    return setRootVelocity(root, Vector3.new(velocity.X, upwardVelocity, velocity.Z))
+end
+
+local function startSpaceBoostLoop()
+    if _G.matchaSpaceBoostLoopRunning then
+        return
+    end
+
+    _G.matchaSpaceBoostLoopRunning = true
+
+    spawn(function()
+        while spaceBoost.enabled and spaceBoost.held do
+            boostSpaceOnce()
+            task.wait(spaceBoost.holdInterval)
+        end
+
+        _G.matchaSpaceBoostLoopRunning = false
+    end)
+end
+
+local function softenFallOnce()
+    local root = getRootPart(getLocalCharacter())
+    if not root then
+        return false
+    end
+
+    local velocity = getRootVelocity(root)
+    if not velocity then
+        return false
+    end
+
+    if velocity.Y < noFall.triggerSpeed then
+        setRootVelocity(root, Vector3.new(velocity.X, noFall.safeSpeed, velocity.Z))
+        return true
+    end
+
+    return false
+end
+
+local function startNoFallLoop()
+    if _G.matchaNoFallLoopRunning then
+        return
+    end
+
+    _G.matchaNoFallLoopRunning = true
+
+    spawn(function()
+        while noFall.enabled do
+            softenFallOnce()
+            task.wait(noFall.delay)
+        end
+
+        _G.matchaNoFallLoopRunning = false
+    end)
+end
+
+local function applySpeedOnce()
+    local character = getLocalCharacter()
+    local humanoid = getHumanoid(character)
+    local walkSpeedValue = getWalkSpeedValue(character)
+    local changed = false
+
+    if humanoid then
+        local ok = pcall(function()
+            humanoid.WalkSpeed = speedChanger.speed
+        end)
+        changed = changed or ok
+    end
+
+    if walkSpeedValue then
+        local ok = pcall(function()
+            walkSpeedValue.Value = speedChanger.speed
+        end)
+        changed = changed or ok
+    end
+
+    return changed
+end
+
+local function startSpeedLoop()
+    if _G.matchaSpeedLoopRunning then
+        return
+    end
+
+    _G.matchaSpeedLoopRunning = true
+
+    spawn(function()
+        while speedChanger.enabled do
+            applySpeedOnce()
+            task.wait(speedChanger.delay)
+        end
+
+        _G.matchaSpeedLoopRunning = false
+    end)
+end
+
+local function setAllCharacterCollision(canCollide)
+    local character = getLocalCharacter()
+    if not character then
+        return
+    end
+
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            pcall(function()
+                part.CanCollide = canCollide
+            end)
+        end
+    end
+end
+
+local function teleportTo(pos)
+    local root = getRootPart(getLocalCharacter())
+    if not root then
+        return false
+    end
+
+    local ok = pcall(function()
+        setRootVelocity(root, Vector3.new(0, 0, 0))
+        root.Position = pos
+    end)
+
+    return ok
+end
+
+local function setPropertyIfPossible(object, property, value)
+    if not object then
+        return false
+    end
+
+    local ok = pcall(function()
+        object[property] = value
+    end)
+
+    return ok
+end
+
+local function getSafeDescendants(root)
+    if not root then
+        return {}
+    end
+
+    local ok, descendants = pcall(function()
+        return root:GetDescendants()
+    end)
+
+    if ok and descendants then
+        return descendants
+    end
+
+    return {}
+end
+
+local function getPropertyIfPossible(object, property)
+    if not object then
+        return nil
+    end
+
+    local ok, value = pcall(function()
+        return object[property]
+    end)
+
+    if ok then
+        return value
+    end
+
+    return nil
+end
+
+local function isClass(object, className)
+    local ok, result = pcall(function()
+        return object:IsA(className)
+    end)
+
+    return ok and result
+end
+
+local function saveNoFogOriginals()
+    if noFog.saved or not Lighting then
+        return
+    end
+
+    noFog.fogStart = getPropertyIfPossible(Lighting, "FogStart")
+    noFog.fogEnd = getPropertyIfPossible(Lighting, "FogEnd")
+
+    for _, object in ipairs(getSafeDescendants(Lighting)) do
+        if isClass(object, "Atmosphere") then
+            noFog.atmosphereValues[object] = {
+                Density = getPropertyIfPossible(object, "Density"),
+                Haze = getPropertyIfPossible(object, "Haze"),
+                Glare = getPropertyIfPossible(object, "Glare")
+            }
+        end
+    end
+
+    noFog.saved = true
+end
+
+local function applyNoFogOnce()
+    if not Lighting then
+        return false
+    end
+
+    saveNoFogOriginals()
+    setPropertyIfPossible(Lighting, "FogStart", 0)
+    setPropertyIfPossible(Lighting, "FogEnd", 1000000)
+
+    for _, object in ipairs(getSafeDescendants(Lighting)) do
+        if isClass(object, "Atmosphere") then
+            if not noFog.atmosphereValues[object] then
+                noFog.atmosphereValues[object] = {
+                    Density = getPropertyIfPossible(object, "Density"),
+                    Haze = getPropertyIfPossible(object, "Haze"),
+                    Glare = getPropertyIfPossible(object, "Glare")
+                }
+            end
+
+            setPropertyIfPossible(object, "Density", 0)
+            setPropertyIfPossible(object, "Haze", 0)
+            setPropertyIfPossible(object, "Glare", 0)
+        end
+    end
+
+    return true
+end
+
+local function restoreNoFogOriginals()
+    if not Lighting or not noFog.saved then
+        return
+    end
+
+    if noFog.fogStart ~= nil then
+        setPropertyIfPossible(Lighting, "FogStart", noFog.fogStart)
+    end
+
+    if noFog.fogEnd ~= nil then
+        setPropertyIfPossible(Lighting, "FogEnd", noFog.fogEnd)
+    end
+
+    for atmosphere, values in pairs(noFog.atmosphereValues) do
+        if atmosphere and values then
+            if values.Density ~= nil then
+                setPropertyIfPossible(atmosphere, "Density", values.Density)
+            end
+
+            if values.Haze ~= nil then
+                setPropertyIfPossible(atmosphere, "Haze", values.Haze)
+            end
+
+            if values.Glare ~= nil then
+                setPropertyIfPossible(atmosphere, "Glare", values.Glare)
+            end
+        end
+    end
+end
+
+local function startNoFogLoop()
+    if _G.matchaNoFogLoopRunning then
+        return
+    end
+
+    _G.matchaNoFogLoopRunning = true
+
+    spawn(function()
+        while noFog.enabled do
+            applyNoFogOnce()
+            task.wait(noFog.delay)
+        end
+
+        _G.matchaNoFogLoopRunning = false
+    end)
+end
+
+local function roundValue(value)
+    return math.floor((tonumber(value) or 0) + 0.5)
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed or not spaceBoost.enabled or not isSpaceInput(input) then
+        return
+    end
+
+    spaceBoost.held = true
+    boostSpaceOnce()
+    startSpaceBoostLoop()
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if gameProcessed or not isSpaceInput(input) then
+        return
+    end
+
+    spaceBoost.held = false
+end)
+
+if not UI then
+    return
+end
+
+UI.AddTab("Archived", function(tab)
+    local movement = tab:Section("Movement", "Left", {"Main"}, 460)
+    if movement.page == 0 then
+        movement:Toggle("pm_noclip", "Noclip", false, function(value)
+            _G.matchaNoclip = value
+            if value then
+                spawn(function()
+                    while _G.matchaNoclip do
+                        setAllCharacterCollision(false)
+                        task.wait(0.1)
+                    end
+                end)
+            else
+                setAllCharacterCollision(true)
+            end
+        end)
+
+        movement:Toggle("pm_nofall", "No Fall", false, function(value)
+            noFall.enabled = value
+            if value then
+                startNoFallLoop()
+            end
+        end)
+
+        movement:SliderInt("pm_fall_trigger", "Fall Trigger", 40, 140, math.abs(noFall.triggerSpeed), function(value)
+            noFall.triggerSpeed = -math.abs(roundValue(value))
+        end)
+
+        movement:SliderInt("pm_fall_cap", "Fall Cap", 1, 70, math.abs(noFall.safeSpeed), function(value)
+            noFall.safeSpeed = -math.abs(roundValue(value))
+        end)
+
+        movement:Button("Soften Fall Now", function()
+            softenFallOnce()
+        end)
+
+        movement:Toggle("pm_speed_enabled", "Speed", false, function(value)
+            speedChanger.enabled = value
+            if value then
+                applySpeedOnce()
+                startSpeedLoop()
+            end
+        end)
+
+        movement:SliderInt("pm_speed", "Walk Speed", 16, 250, speedChanger.speed, function(value)
+            speedChanger.speed = roundValue(value)
+            if speedChanger.enabled then
+                applySpeedOnce()
+            end
+        end)
+
+        movement:Toggle("pm_space_boost", "Space Boost", false, function(value)
+            spaceBoost.enabled = value
+            if not value then
+                spaceBoost.held = false
+            end
+        end)
+
+        movement:SliderInt("pm_space_boost_power", "Space Boost Power", 10, 150, spaceBoost.boostPower, function(value)
+            spaceBoost.boostPower = roundValue(value)
+        end)
+
+        movement:SliderInt("pm_space_boost_cap", "Space Boost Cap", 40, 350, spaceBoost.maxUpwardVelocity, function(value)
+            spaceBoost.maxUpwardVelocity = roundValue(value)
+        end)
+
+        movement:Toggle("pm_no_fog", "No Fog", false, function(value)
+            noFog.enabled = value
+            if value then
+                applyNoFogOnce()
+                startNoFogLoop()
+            else
+                restoreNoFogOriginals()
+            end
+        end)
+    end
+end)
+
+UI.AddTab("Archived World", function(tab)
+    local teleport = tab:Section("Teleports", "Left", {"Places"}, 460)
+    if teleport.page == 0 then
+        teleport:Button("Subway", function() teleportTo(locations.Subway) end)
+        teleport:Button("Darius", function() teleportTo(locations.Darius) end)
+        teleport:Button("Hana", function() teleportTo(locations.Hana) end)
+        teleport:Button("Sentenza", function() teleportTo(locations.Sentenza) end)
+        teleport:Button("Workshop", function() teleportTo(locations.Workshop) end)
+        teleport:Button("Library TP", function() teleportTo(locations.LibraryTP) end)
+        teleport:Button("Docks", function() teleportTo(locations.Docks) end)
+        teleport:Button("Mark Tower", function() teleportTo(locations.MarkTower) end)
+        teleport:Button("BasketBall", function() teleportTo(locations.BasketBall) end)
+        teleport:Button("TowerOfAss", function() teleportTo(locations.TowerOfAss) end)
+    end
+end)
