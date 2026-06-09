@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -33,6 +34,14 @@ local noFog = {
     fogStart = nil,
     fogEnd = nil,
     atmosphereValues = {}
+}
+
+local weaponTweaks = {
+    enabled = false,
+    noM1Delay = false,
+    noStaminaDrain = false,
+    delay = 0.15,
+    originalValues = setmetatable({}, { __mode = "k" })
 }
 
 local locations = {
@@ -164,6 +173,187 @@ local function setRootVelocity(root, velocity)
     end)
 
     return true
+end
+
+local function getWeaponInfoFolder()
+    return ReplicatedStorage:FindFirstChild("WeaponINFO")
+end
+
+local function getEquippedWeaponName(character)
+    if not character then
+        return nil
+    end
+
+    local weaponValue = character:FindFirstChild("Weapon")
+    if weaponValue and weaponValue:IsA("StringValue") and weaponValue.Value ~= "" then
+        return weaponValue.Value
+    end
+
+    local weaponInfo = getWeaponInfoFolder()
+    for _, child in ipairs(character:GetChildren()) do
+        local isCandidate = false
+        pcall(function()
+            isCandidate = child:IsA("Model") or child:IsA("Folder") or child:IsA("Tool")
+        end)
+
+        if isCandidate then
+            if weaponInfo and weaponInfo:FindFirstChild(child.Name) then
+                return child.Name
+            end
+
+            if child:FindFirstChild("WeaponState") or child:FindFirstChild("SwingSpeed") or child:FindFirstChild("M1Delay") then
+                return child.Name
+            end
+        end
+    end
+
+    return nil
+end
+
+local function getWeaponRoots(character)
+    local roots = {}
+    local weaponName = getEquippedWeaponName(character)
+
+    if not weaponName then
+        return roots, nil
+    end
+
+    local weaponInfo = getWeaponInfoFolder()
+    if weaponInfo then
+        local info = weaponInfo:FindFirstChild(weaponName)
+        if info then
+            table.insert(roots, info)
+        end
+    end
+
+    local liveWeapon = character and character:FindFirstChild(weaponName)
+    if liveWeapon then
+        table.insert(roots, liveWeapon)
+    end
+
+    return roots, weaponName
+end
+
+local function getNumberValueObjectsByName(root, valueName)
+    local results = {}
+
+    if not root then
+        return results
+    end
+
+    local function consider(object)
+        local isValue = false
+        pcall(function()
+            isValue = object:IsA("NumberValue") or object:IsA("IntValue")
+        end)
+
+        if isValue and object.Name == valueName then
+            table.insert(results, object)
+        end
+    end
+
+    consider(root)
+
+    local ok, descendants = pcall(function()
+        return root:GetDescendants()
+    end)
+
+    if ok and descendants then
+        for _, object in ipairs(descendants) do
+            consider(object)
+        end
+    end
+
+    return results
+end
+
+local function cacheWeaponOriginalValue(object)
+    if weaponTweaks.originalValues[object] ~= nil then
+        return
+    end
+
+    local ok, value = pcall(function()
+        return object.Value
+    end)
+
+    if ok then
+        weaponTweaks.originalValues[object] = value
+    end
+end
+
+local function setWeaponValue(object, value)
+    cacheWeaponOriginalValue(object)
+    pcall(function()
+        object.Value = value
+    end)
+end
+
+local function restoreWeaponValue(object)
+    local original = weaponTweaks.originalValues[object]
+    if original == nil then
+        return
+    end
+
+    pcall(function()
+        object.Value = original
+    end)
+end
+
+local function applyWeaponTweaksToRoot(root)
+    if not root then
+        return false
+    end
+
+    local applied = false
+    local targets = {
+        { name = "TimeUntilHitbox", enabled = weaponTweaks.noM1Delay, value = 0 },
+        { name = "SwingSpeed", enabled = weaponTweaks.noM1Delay, value = 1000 },
+        { name = "M1Delay", enabled = weaponTweaks.noM1Delay, value = -1000 },
+        { name = "Stamina", enabled = weaponTweaks.noStaminaDrain, value = 0 }
+    }
+
+    for _, target in ipairs(targets) do
+        for _, object in ipairs(getNumberValueObjectsByName(root, target.name)) do
+            applied = true
+            if target.enabled then
+                setWeaponValue(object, target.value)
+            else
+                restoreWeaponValue(object)
+            end
+        end
+    end
+
+    return applied
+end
+
+local function applyWeaponTweaks()
+    local character = getLocalCharacter()
+    local roots = getWeaponRoots(character)
+    local applied = false
+
+    for _, root in ipairs(roots) do
+        applied = applyWeaponTweaksToRoot(root) or applied
+    end
+
+    return applied
+end
+
+local function startWeaponTweakLoop()
+    if _G.matchaWeaponTweakLoopRunning then
+        return
+    end
+
+    _G.matchaWeaponTweakLoopRunning = true
+
+    spawn(function()
+        while weaponTweaks.noM1Delay or weaponTweaks.noStaminaDrain do
+            applyWeaponTweaks()
+            task.wait(weaponTweaks.delay)
+        end
+
+        applyWeaponTweaks()
+        _G.matchaWeaponTweakLoopRunning = false
+    end)
 end
 
 local function isSpaceInput(input)
@@ -562,6 +752,22 @@ UI.AddTab("Archived", function(tab)
                 startNoFogLoop()
             else
                 restoreNoFogOriginals()
+            end
+        end)
+
+        movement:Toggle("pm_no_m1_delay", "No M1 Delay", false, function(value)
+            weaponTweaks.noM1Delay = value
+            applyWeaponTweaks()
+            if value then
+                startWeaponTweakLoop()
+            end
+        end)
+
+        movement:Toggle("pm_no_stamina_drain", "No Stamina Drain", false, function(value)
+            weaponTweaks.noStaminaDrain = value
+            applyWeaponTweaks()
+            if value then
+                startWeaponTweakLoop()
             end
         end)
     end
