@@ -1529,6 +1529,7 @@ UI.AddTab("Archived", function(tab)
             pcall(function() notify("Attaching resumed", "Auto Library", 3) end)
         end)
 
+        -- prints your current world position (and PlaceId/JobId) to the console
         library:SliderInt("lib_attach_height", "Attach Height (above)", 1, 20, autoLibrary.attachHeight, function(value)
             autoLibrary.attachHeight = roundValue(value)
         end)
@@ -1599,6 +1600,8 @@ UI.AddTab("Archived", function(tab)
             task.wait(autoLibrary.dialogDelay)
             clickAtScreenPos(autoLibrary.dialog2X, autoLibrary.dialog2Y)
         end)
+    end
+end)
 
 UI.AddTab("Archived Teleports", function(tab)
     local teleport = tab:Section("Teleports", "Left", {"Places"}, 460)
