@@ -1529,29 +1529,6 @@ UI.AddTab("Archived", function(tab)
             pcall(function() notify("Attaching resumed", "Auto Library", 3) end)
         end)
 
-        -- prints your current world position (and PlaceId/JobId) to the console
-        library:Button("Print My Location", function()
-            local root = getRootPart(getLocalCharacter())
-            if not root then
-                print("[Archived] Print My Location: no root part found")
-                pcall(function() notify("No character", "Archived", 3) end)
-                return
-            end
-
-            local ok, p = pcall(function() return root.Position end)
-            if not ok or not p then
-                print("[Archived] Print My Location: couldn't read position")
-                return
-            end
-
-            local line = string.format("Vector3.new(%.2f, %.2f, %.2f)", p.X, p.Y, p.Z)
-            print("[Archived] My location: " .. line)
-            print("[Archived] PlaceId: " .. tostring(getPlaceId()) .. "  JobId: " .. tostring(getJobId()))
-
-            pcall(function() setclipboard(line) end) -- copy the Vector3 if supported
-            pcall(function() notify("Location printed to console", "Archived", 3) end)
-        end)
-
         library:SliderInt("lib_attach_height", "Attach Height (above)", 1, 20, autoLibrary.attachHeight, function(value)
             autoLibrary.attachHeight = roundValue(value)
         end)
@@ -1622,20 +1599,6 @@ UI.AddTab("Archived", function(tab)
             task.wait(autoLibrary.dialogDelay)
             clickAtScreenPos(autoLibrary.dialog2X, autoLibrary.dialog2Y)
         end)
-
-        library:Toggle("lib_animspeed", "Animation Speed", false, function(value)
-            animSpeed.enabled = value
-            if value then
-                applyAnimSpeedOnce()
-                startAnimSpeedLoop()
-            end
-        end)
-
-        library:SliderInt("lib_animspeed_val", "Anim Speed x10", 1, 50, roundValue(animSpeed.speed * 10), function(value)
-            animSpeed.speed = roundValue(value) / 10 -- 10 = 1.0x, 30 = 3.0x
-        end)
-    end
-end)
 
 UI.AddTab("Archived Teleports", function(tab)
     local teleport = tab:Section("Teleports", "Left", {"Places"}, 460)
